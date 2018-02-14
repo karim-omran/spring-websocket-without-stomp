@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Start Page</title>
+        <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+
+        <link href="css/messenger.css" rel="stylesheet" type="text/css"/>
+        <link href="css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
+
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js" ></script>
+        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js.map" ></script>
+        <script type="text/javascript" src="js/jquery-1.10.2.min.js" ></script>
+        <script src="js/messenger.js" type="text/javascript"></script>
+
+    </head>
+
+
+    <body>
+
+        <div class="container">
+
+            <div class="row chat-window col-xs-7 col-md-7" id="chat_window_1" style="margin-left:10px;">
+                <div class="col-xs-12 col-md-12">
+                    <div class="panel panel-default">
+                        <div class="panel-heading top-bar">
+                            <div class="col-md-8 col-xs-8">
+                                <button id="connect-btn" class="btn btn-primary btn-sm" >Connect</button>
+                            </div>
+                            <div class="col-md-4 col-xs-4" style="text-align: right;">
+                                <a href="#"><span id="minim_chat_window" class="glyphicon glyphicon-minus icon_minim"></span></a>
+                            </div>
+                        </div>
+                        <div class="panel-body msg_container_base">
+
+                        </div>    
+                        <div class="panel-footer">
+                            <div class="input-group">
+                                <input id="message-txt" type="text" class="form-control input-sm chat_input" placeholder="Write your message here..." />
+                                <span class="input-group-btn">
+                                    <button class="btn btn-primary btn-sm" id="message-send-btn" disabled="disabled">Send</button>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+
+        <script type="text/javascript">
+            "use strict";
+            var MessageType = {
+                CHAT: "CHAT",
+                JOIN: "JOIN",
+                LEAVE: "LEAVE"
+            };
+
+            var socket = undefined;
+
+            var connectBtn = $('#connect-btn');
+            var msgSendBtn = $('#message-send-btn');
+
+            var messagesDiv = $('.panel-body.msg_container_base');
+
+            var msgTxtIpt = $('#message-txt');
+
+            var onConnectBtnClick = Rx.Observable.fromEvent(connectBtn, 'click');
+            var onMessageSendBtnClick = Rx.Observable.fromEvent(msgSendBtn, 'click');
+            var onMsgTxtIptChange = Rx.Observable.fromEvent(msgTxtIpt, 'input').debounceTime(1000)
+                    .distinctUntilChanged();
+
+            onConnectBtnClick.subscribe(() => {
+                socket = Rx.Observable.webSocket('ws://localhost:8080/messenger');
+                socket.subscribe(
+                        socketMessageReceivedHandler,
+                        socketErrorHandler,
+                        socketCompleteHandler);
+                onMessageSendBtnClick.subscribe(sendBtnClickHandler);
+                connectBtn.prop('disabled', true);
+            });
+            function socketMessageReceivedHandler(msg) {
+
+                messagesDiv
+                        .append(`
+                            <div class="row msg_container base_receive">
+                                <div class="col-md-2 col-xs-2 avatar">
+                                    <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
+                                </div>
+                                <div class="col-md-10 col-xs-10">
+                                    <div class="messages msg_receive">
+                                        <p>${msg.content}</p>
+                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                    </div>
+                                </div>
+                            </div>`);
+                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 1000);
+            }
+
+            function socketErrorHandler(err) {
+                console.log(err);
+            }
+
+            function socketCompleteHandler() {
+                console.log('complete');
+            }
+
+            function sendBtnClickHandler() {
+                msgSendBtn.prop('disabled', true);
+                var msg = msgTxtIpt.val();
+                socket.next(JSON.stringify({type: MessageType.CHAT, content: msg}));
+                msgTxtIpt.val("");
+                messagesDiv
+                        .append(`
+                            <div class="row msg_container base_sent">
+                                <div class="col-md-10 col-xs-10">
+                                    <div class="messages msg_sent">
+                                        <p>${msg}</p>
+                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                    </div>
+                                </div>
+                                <div class="col-md-2 col-xs-2 avatar">
+                                    <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
+                                </div>
+                            </div>`);
+                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 1000);
+            }
+
+
+            onMsgTxtIptChange.subscribe((event) => {
+                console.log(event.target);
+                if (!socket || msgTxtIpt.val() === '') {
+                    msgSendBtn.prop('disabled', true);
+                } else {
+                    msgSendBtn.prop('disabled', false);
+                } 
+            });
+
+
+
+
+        </script>
+
+
+    </body>
+</html>
