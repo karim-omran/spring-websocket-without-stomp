@@ -9,7 +9,7 @@ package com.rxjs.models;
  *
  * @author kimo
  */
-public class ChatMessage {
+public class Message {
 
     private MessageType type;
     private String content;
@@ -17,8 +17,8 @@ public class ChatMessage {
 
     public enum MessageType {
         CHAT,
-        JOIN,
-        LEAVE
+        JOIN_REQUEST,
+        LEAVE_REQUEST
     }
 
     public MessageType getType() {

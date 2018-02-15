@@ -1,9 +1,12 @@
 package com.rxjs.config;
 
 import com.google.gson.Gson;
-import com.rxjs.models.ChatMessage;
+import com.rxjs.models.Message;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -14,12 +17,12 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Component
 public class MessengerHandler extends TextWebSocketHandler {
 
-    private final List<WebSocketSession> sessions;
-    private final List<ChatMessage> chatMessages;
+    private final Map<WebSocketSession, String> namedWebSocketSessions;
+    private final List<Message> chatMessages;
     private final Gson gson;
 
     public MessengerHandler() {
-        this.sessions = new CopyOnWriteArrayList<>();
+        this.namedWebSocketSessions = new ConcurrentHashMap<>();
         this.chatMessages = new CopyOnWriteArrayList<>();
         this.gson = new Gson();
     }
@@ -27,52 +30,54 @@ public class MessengerHandler extends TextWebSocketHandler {
     @Override
     public void handleTextMessage(WebSocketSession session, TextMessage message)
             throws InterruptedException, IOException {
-        ChatMessage chatMessage = gson.fromJson(message.getPayload(), ChatMessage.class);
-        chatMessage.setSender(session.getId());
-        chatMessages.add(chatMessage);
-        for (WebSocketSession webSocketSession : sessions) {
-            if (!session.equals(webSocketSession)) {
-                webSocketSession.sendMessage(new TextMessage(gson.toJson(chatMessage)));
+        Message chatMessage = gson.fromJson(message.getPayload(), Message.class);
+
+        if (Objects.equals(chatMessage.getType(), Message.MessageType.JOIN_REQUEST)) {
+            TextMessage joinMessage = new TextMessage(gson.toJson(getOpenSessionMessage(chatMessage.getSender())));
+            for (Map.Entry<WebSocketSession, String> namedWebSocketSession : this.namedWebSocketSessions.entrySet()) {
+                namedWebSocketSession.getKey().sendMessage(joinMessage);
+            }
+
+            for (Message oldMessage : this.chatMessages) {
+                session.sendMessage(new TextMessage(this.gson.toJson(oldMessage)));
+            }
+
+            this.namedWebSocketSessions.put(session, chatMessage.getSender());
+        } else if (Objects.equals(chatMessage.getType(), Message.MessageType.CHAT)) {
+            chatMessages.add(chatMessage);
+            for (Map.Entry<WebSocketSession, String> namedWebSocketSession : this.namedWebSocketSessions.entrySet()) {
+                if (!session.equals(namedWebSocketSession.getKey())) {
+                    namedWebSocketSession.getKey().sendMessage(new TextMessage(gson.toJson(chatMessage)));
+                }
             }
         }
-    }
 
-    @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        super.afterConnectionEstablished(session);
-        for (WebSocketSession webSocketSession : sessions) {
-            webSocketSession.sendMessage(new TextMessage(gson.toJson(this.getOpenSessionMessage(session))));
-        }
-        this.sessions.add(session);
-
-        for (ChatMessage chatMessage : chatMessages) {
-            session.sendMessage(new TextMessage(gson.toJson(chatMessage)));
-        }
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
         super.afterConnectionClosed(session, status);
-        this.sessions.remove(session);
-        for (WebSocketSession webSocketSession : sessions) {
-            webSocketSession.sendMessage(new TextMessage(gson.toJson(this.getCloseSessionMessage(session))));
 
+        TextMessage leaveMessage = new TextMessage(gson.toJson(this.getCloseSessionMessage(this.namedWebSocketSessions.get(session))));
+        this.namedWebSocketSessions.remove(session);
+        for (Map.Entry<WebSocketSession, String> namedWebSocketSession : this.namedWebSocketSessions.entrySet()) {
+            namedWebSocketSession.getKey().sendMessage(leaveMessage);
         }
     }
 
-    private ChatMessage getOpenSessionMessage(WebSocketSession session) {
-        ChatMessage chatMessage = new ChatMessage();
-        chatMessage.setSender(session.getId());
+    private Message getOpenSessionMessage(String name) {
+        Message chatMessage = new Message();
+        chatMessage.setSender(name);
         chatMessage.setContent("Joined session.");
-        chatMessage.setType(ChatMessage.MessageType.JOIN);
+        chatMessage.setType(Message.MessageType.JOIN_REQUEST);
         return chatMessage;
     }
 
-    private ChatMessage getCloseSessionMessage(WebSocketSession session) {
-        ChatMessage chatMessage = new ChatMessage();
-        chatMessage.setSender(session.getId());
-        chatMessage.setContent("Leaved session.");
-        chatMessage.setType(ChatMessage.MessageType.LEAVE);
+    private Message getCloseSessionMessage(String name) {
+        Message chatMessage = new Message();
+        chatMessage.setSender(name);
+        chatMessage.setContent("Left session.");
+        chatMessage.setType(Message.MessageType.LEAVE_REQUEST);
         return chatMessage;
     }
 

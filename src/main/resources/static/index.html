@@ -4,36 +4,40 @@
         <title>Start Page</title>
         <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
 
 
         <link href="css/messenger.css" rel="stylesheet" type="text/css"/>
         <link href="css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
 
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js" ></script>
-        <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js.map" ></script>
+        <!--<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js.map" ></script>-->
         <script type="text/javascript" src="js/jquery-1.10.2.min.js" ></script>
-        <script src="js/messenger.js" type="text/javascript"></script>
+        <script type="text/javascript" src="js/messenger.js" ></script>
+        <script type="text/javascript" src="js/bootstrap-notify.min.js" ></script>
 
     </head>
 
 
     <body>
 
-        <div class="container">
+        <div class="container-fluid">
 
-            <div class="row chat-window col-xs-7 col-md-7" id="chat_window_1" style="margin-left:10px;">
+            <div class="row chat-window col-xs-5 col-md-5" id="chat_window_1" style="margin-left:10px;">
                 <div class="col-xs-12 col-md-12">
                     <div class="panel panel-default">
                         <div class="panel-heading top-bar">
-                            <div class="col-md-8 col-xs-8">
-                                <button id="connect-btn" class="btn btn-primary btn-sm" >Connect</button>
+                            <div class="col-md-4 col-xs-4">
+                                <button id="connect-btn" class="btn btn-primary btn-sm" disabled="disabled" >Connect</button>
                             </div>
-                            <div class="col-md-4 col-xs-4" style="text-align: right;">
+                            <div class="col-md-6 col-xs-6">
+                                <input id="name-txt" type="text" class="form-control input-sm chat_input" placeholder="Write your name here..." />
+                            </div>
+                            <div class="col-md-2 col-xs-2" style="text-align: right;">
                                 <a href="#"><span id="minim_chat_window" class="glyphicon glyphicon-minus icon_minim"></span></a>
                             </div>
                         </div>
-                        <div class="panel-body msg_container_base">
+                        <div id="messages-div" class="panel-body msg_container_base">
 
                         </div>    
                         <div class="panel-footer">
@@ -55,8 +59,29 @@
             "use strict";
             var MessageType = {
                 CHAT: "CHAT",
-                JOIN: "JOIN",
-                LEAVE: "LEAVE"
+                JOIN_REQUEST: "JOIN_REQUEST",
+                LEAVE_REQUEST: "LEAVE_REQUEST"
+            };
+
+            var notificationSettings = {
+                // settings
+                element: 'body',
+                position: null,
+                type: "info",
+                allow_dismiss: true,
+                placement: {
+                    from: "top",
+                    align: "right"
+                },
+                offset: 20,
+                spacing: 10,
+                z_index: 1031,
+                delay: 5000,
+                timer: 1000,
+                animate: {
+                    enter: 'animated fadeInDown',
+                    exit: 'animated fadeOutUp'
+                }
             };
 
             var socket = undefined;
@@ -64,31 +89,56 @@
             var connectBtn = $('#connect-btn');
             var msgSendBtn = $('#message-send-btn');
 
-            var messagesDiv = $('.panel-body.msg_container_base');
+            var messagesDiv = $('#messages-div');
 
             var msgTxtIpt = $('#message-txt');
+            var nameTxtIpt = $('#name-txt');
 
             var onConnectBtnClick = Rx.Observable.fromEvent(connectBtn, 'click');
             var onMessageSendBtnClick = Rx.Observable.fromEvent(msgSendBtn, 'click');
-            var onMsgTxtIptChange = Rx.Observable.fromEvent(msgTxtIpt, 'input').debounceTime(1000)
+            var onMsgTxtIptChange = Rx.Observable.fromEvent(msgTxtIpt, 'input').debounceTime(700)
                     .distinctUntilChanged();
 
+            var onNameTxtIptChange = Rx.Observable.fromEvent(nameTxtIpt, 'input').debounceTime(700)
+                    .distinctUntilChanged();
+
+            var onMsgTxtIptEnterKeyPressed = Rx.Observable.fromEvent(msgTxtIpt, 'keyup').debounceTime(700)
+                    .distinctUntilChanged().filter(e => e.keyCode === 13);
+
             onConnectBtnClick.subscribe(() => {
-                socket = Rx.Observable.webSocket('ws://localhost:8080/messenger');
+                socket = Rx.Observable.webSocket(`ws://${window.location.hostname}:${window.location.port}/messenger`)
+                        .retryWhen(errors => {
+                            console.log(errors);
+                            errors
+                                    //log error message
+                                    .do(msg => console.log(`error sending message ${msg.content} !`))
+                        });
+
                 socket.subscribe(
                         socketMessageReceivedHandler,
                         socketErrorHandler,
                         socketCompleteHandler);
                 onMessageSendBtnClick.subscribe(sendBtnClickHandler);
                 connectBtn.prop('disabled', true);
-            });
-            function socketMessageReceivedHandler(msg) {
+                nameTxtIpt.prop('disabled', true);
+                socket.next(JSON.stringify({type: MessageType.JOIN_REQUEST, sender: nameTxtIpt.val()}));
 
-                messagesDiv
-                        .append(`
+            });
+
+            function socketMessageReceivedHandler(msg) {
+                if (msg.type === MessageType.JOIN_REQUEST) {
+                    $.notify('<strong>' + msg.sender + '</strong> joined conversation', notificationSettings);
+                } else if (msg.type === MessageType.LEAVE_REQUEST) {
+                    $.notify('<strong>' + msg.sender + '</strong> left conversation', notificationSettings);
+                } else {
+
+                    if (msg.sender !== nameTxtIpt.val()) {
+                        messagesDiv
+                                .append(`
                             <div class="row msg_container base_receive">
                                 <div class="col-md-2 col-xs-2 avatar">
                                     <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
+                                    <strong>${msg.sender}</strong>
                                 </div>
                                 <div class="col-md-10 col-xs-10">
                                     <div class="messages msg_receive">
@@ -97,7 +147,25 @@
                                     </div>
                                 </div>
                             </div>`);
-                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 1000);
+                    } else {
+                        messagesDiv
+                                .append(`
+                            <div class="row msg_container base_sent">
+                                <div class="col-md-10 col-xs-10">
+                                    <div class="messages msg_sent">
+                                        <p>${msg.content}</p>
+                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                    </div>
+                                </div>
+                                <div class="col-md-2 col-xs-2 avatar">
+                                    <strong>${msg.sender}</strong>
+                                    <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
+                                </div>
+                            </div>`);
+                    }
+                }
+
+                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 100);
             }
 
             function socketErrorHandler(err) {
@@ -111,7 +179,8 @@
             function sendBtnClickHandler() {
                 msgSendBtn.prop('disabled', true);
                 var msg = msgTxtIpt.val();
-                socket.next(JSON.stringify({type: MessageType.CHAT, content: msg}));
+                var name = nameTxtIpt.val();
+                socket.next(JSON.stringify({type: MessageType.CHAT, content: msg, sender: name}));
                 msgTxtIpt.val("");
                 messagesDiv
                         .append(`
@@ -126,21 +195,28 @@
                                     <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
                                 </div>
                             </div>`);
-                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 1000);
+                messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 100);
             }
 
+            onMsgTxtIptEnterKeyPressed.subscribe(() => {
+                sendBtnClickHandler();
+            });
 
-            onMsgTxtIptChange.subscribe((event) => {
-                console.log(event.target);
+            onMsgTxtIptChange.subscribe(() => {
                 if (!socket || msgTxtIpt.val() === '') {
                     msgSendBtn.prop('disabled', true);
                 } else {
                     msgSendBtn.prop('disabled', false);
-                } 
+                }
             });
 
-
-
+            onNameTxtIptChange.subscribe(() => {
+                if (nameTxtIpt.val() === '') {
+                    connectBtn.prop('disabled', true);
+                } else {
+                    connectBtn.prop('disabled', false);
+                }
+            });
 
         </script>
 
