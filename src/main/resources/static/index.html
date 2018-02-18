@@ -11,7 +11,6 @@
         <link href="css/bootstrap.min.css" rel="stylesheet" type="text/css"/>
 
         <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js" ></script>
-        <!--<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/rxjs/5.5.2/Rx.js.map" ></script>-->
         <script type="text/javascript" src="js/jquery-1.10.2.min.js" ></script>
         <script type="text/javascript" src="js/messenger.js" ></script>
         <script type="text/javascript" src="js/bootstrap-notify.min.js" ></script>
@@ -34,7 +33,7 @@
                                 <input id="name-txt" type="text" class="form-control input-sm chat_input" placeholder="Write your name here..." />
                             </div>
                             <div class="col-md-2 col-xs-2" style="text-align: right;">
-                                <a href="#"><span id="minim_chat_window" class="glyphicon glyphicon-minus icon_minim"></span></a>
+                                <span id="minim_chat_window" class="glyphicon glyphicon-minus icon_minim" style="cursor: pointer;"></span>
                             </div>
                         </div>
                         <div id="messages-div" class="panel-body msg_container_base">
@@ -57,12 +56,16 @@
 
         <script type="text/javascript">
             "use strict";
+
+            // types of messages between client and server
             var MessageType = {
                 CHAT: "CHAT",
                 JOIN_REQUEST: "JOIN_REQUEST",
                 LEAVE_REQUEST: "LEAVE_REQUEST"
             };
 
+
+            // Notification Settings -- don't modify
             var notificationSettings = {
                 // settings
                 element: 'body',
@@ -84,8 +87,15 @@
                 }
             };
 
-            var socket = undefined;
+            var datetimeFormatOptions = {
+                weekday: "long", year: "numeric", month: "short",
+                day: "numeric", hour: "2-digit", minute: "2-digit"
+            };
 
+            // websocket observable
+            var socketObservable = undefined;
+
+            // jquery selector for connect button
             var connectBtn = $('#connect-btn');
             var msgSendBtn = $('#message-send-btn');
 
@@ -94,45 +104,77 @@
             var msgTxtIpt = $('#message-txt');
             var nameTxtIpt = $('#name-txt');
 
+            // assign new Observable on click event to connect button
             var onConnectBtnClick = Rx.Observable.fromEvent(connectBtn, 'click');
+            // please do the same on send button click
+            // TODO:: use rxjs to assign observable to send button
             var onMessageSendBtnClick = Rx.Observable.fromEvent(msgSendBtn, 'click');
+
+            // now we need a listener on text message change to enable or disable send message button
+            // you can use 'input' event just like 'click' but it listen to input changes and then add 
+            // a debounceTime to wait for a certain time before enable or disable it
+            // TODO:: create observable from 'input' event on "msgTxtIpt"
             var onMsgTxtIptChange = Rx.Observable.fromEvent(msgTxtIpt, 'input').debounceTime(700)
                     .distinctUntilChanged();
 
+            // do the same for name input to enable or disable connect button
+            // TODO:: create observable from 'input' event on "nameTxtIpt"
             var onNameTxtIptChange = Rx.Observable.fromEvent(nameTxtIpt, 'input').debounceTime(700)
                     .distinctUntilChanged();
 
+            // here we are adding a listener to message text box on enter key press to send the message
             var onMsgTxtIptEnterKeyPressed = Rx.Observable.fromEvent(msgTxtIpt, 'keyup').debounceTime(700)
                     .distinctUntilChanged().filter(e => e.keyCode === 13);
 
-            onConnectBtnClick.subscribe(() => {
-                socket = Rx.Observable.webSocket(`ws://${window.location.hostname}:${window.location.port}/messenger`)
-                        .retryWhen(errors => {
-                            console.log(errors);
-                            errors
-                                    //log error message
-                                    .do(msg => console.log(`error sending message ${msg.content} !`))
-                        });
 
-                socket.subscribe(
+            onConnectBtnClick.subscribe(() => {
+                // on connect button click we have to initialize socket observable and start listening
+                socketObservable = Rx.Observable.webSocket(`ws://${window.location.hostname}:${window.location.port}/messenger`)
+                        // on connection error retry every 5 seconds untill connected 
+                        .retryWhen(errors => errors
+                                    //log error message
+                                    .do((err) => {
+                                        console.error(`error connecting to server!!!`);
+                                        console.error(err);
+                                    })
+                                    //restart in 5 seconds
+                                    .delayWhen(() => Rx.Observable.timer(5000)));
+
+                // remember observable doesn't worth any thing without an observer to execute buisiness logic.
+                // here you have to subscribe three listeners to "socketObservable"
+                // 1- socketMessageReceivedHandler
+                // 2- socketErrorHandler
+                // 3- socketCompleteHandler
+                // TODO:: subscribe the 3 handlers to "socketObservable"
+                socketObservable.subscribe(
                         socketMessageReceivedHandler,
                         socketErrorHandler,
                         socketCompleteHandler);
+
+                // after initializing "socketObservable" you can subscribe to send message button which send 
+                // chat message through socket
+                // TODO:: subscribe "sendBtnClickHandler" to "onMessageSendBtnClick"
                 onMessageSendBtnClick.subscribe(sendBtnClickHandler);
+
+                // disable connect and name text field after connect
                 connectBtn.prop('disabled', true);
                 nameTxtIpt.prop('disabled', true);
-                socket.next(JSON.stringify({type: MessageType.JOIN_REQUEST, sender: nameTxtIpt.val()}));
 
+                // send join request to server
+                // just to bind the socket session on server with user name
+                socketObservable.next(JSON.stringify({type: MessageType.JOIN_REQUEST, sender: nameTxtIpt.val()}));
             });
 
+            // handles any message recieved on socket
             function socketMessageReceivedHandler(msg) {
-                if (msg.type === MessageType.JOIN_REQUEST) {
+                if (msg.type === MessageType.JOIN_REQUEST) { // if join request show notification 
                     $.notify('<strong>' + msg.sender + '</strong> joined conversation', notificationSettings);
-                } else if (msg.type === MessageType.LEAVE_REQUEST) {
+                } else if (msg.type === MessageType.LEAVE_REQUEST) { // if leave request show notification 
                     $.notify('<strong>' + msg.sender + '</strong> left conversation', notificationSettings);
                 } else {
 
-                    if (msg.sender !== nameTxtIpt.val()) {
+                    // send and recieved conditions to view history messages
+                    if (msg.sender !== nameTxtIpt.val()) { // if sender is not me then show as msg received
                         messagesDiv
                                 .append(`
                             <div class="row msg_container base_receive">
@@ -143,18 +185,18 @@
                                 <div class="col-md-10 col-xs-10">
                                     <div class="messages msg_receive">
                                         <p>${msg.content}</p>
-                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                        <time>${new Date(msg.time).toLocaleTimeString("en-us", datetimeFormatOptions)}</time>
                                     </div>
                                 </div>
                             </div>`);
-                    } else {
+                    } else { // if sender is me then show as msg sent
                         messagesDiv
                                 .append(`
                             <div class="row msg_container base_sent">
                                 <div class="col-md-10 col-xs-10">
                                     <div class="messages msg_sent">
                                         <p>${msg.content}</p>
-                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                        <time>${new Date(msg.time).toLocaleTimeString("en-us", datetimeFormatOptions)}</time>
                                     </div>
                                 </div>
                                 <div class="col-md-2 col-xs-2 avatar">
@@ -165,22 +207,27 @@
                     }
                 }
 
+                // scroll messages to show new message
                 messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 100);
             }
 
+            // handles errors on socket
             function socketErrorHandler(err) {
-                console.log(err);
+                console.error(err);
             }
 
+            // after connection closed you can do clean up tasks here
             function socketCompleteHandler() {
                 console.log('complete');
             }
 
+            // handles send button click
             function sendBtnClickHandler() {
                 msgSendBtn.prop('disabled', true);
                 var msg = msgTxtIpt.val();
                 var name = nameTxtIpt.val();
-                socket.next(JSON.stringify({type: MessageType.CHAT, content: msg, sender: name}));
+                var time = new Date();
+                socketObservable.next(JSON.stringify({type: MessageType.CHAT, content: msg, sender: name, time: time}));
                 msgTxtIpt.val("");
                 messagesDiv
                         .append(`
@@ -188,29 +235,35 @@
                                 <div class="col-md-10 col-xs-10">
                                     <div class="messages msg_sent">
                                         <p>${msg}</p>
-                                        <time datetime="2009-11-13T20:00">Timothy • 51 min</time>
+                                        <time>${time.toLocaleTimeString("en-us", datetimeFormatOptions)}</time>
                                     </div>
                                 </div>
                                 <div class="col-md-2 col-xs-2 avatar">
+                                    <strong>${name}</strong>
                                     <img src="http://www.bitrebels.com/wp-content/uploads/2011/02/Original-Facebook-Geek-Profile-Avatar-1.jpg" class=" img-responsive ">
                                 </div>
                             </div>`);
                 messagesDiv.animate({scrollTop: messagesDiv.prop("scrollHeight")}, 100);
             }
 
+            // subscribe to "onMsgTxtIptEnterKeyPressed" to send message on enter button press
             onMsgTxtIptEnterKeyPressed.subscribe(() => {
                 sendBtnClickHandler();
             });
 
+            // subscribe to "onMsgTxtIptChange"
             onMsgTxtIptChange.subscribe(() => {
-                if (!socket || msgTxtIpt.val() === '') {
+                // don't enable send button untill socket is initialized and message is not empty
+                if (!socketObservable || msgTxtIpt.val() === '') {
                     msgSendBtn.prop('disabled', true);
                 } else {
                     msgSendBtn.prop('disabled', false);
                 }
             });
 
+            // subscribe to "onNameTxtIptChange"
             onNameTxtIptChange.subscribe(() => {
+                // don't enable connect button untill user name is not empty
                 if (nameTxtIpt.val() === '') {
                     connectBtn.prop('disabled', true);
                 } else {

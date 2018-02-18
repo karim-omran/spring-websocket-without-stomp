@@ -5,6 +5,8 @@
  */
 package com.rxjs.models;
 
+import java.util.Date;
+
 /**
  *
  * @author kimo
@@ -14,6 +16,7 @@ public class Message {
     private MessageType type;
     private String content;
     private String sender;
+    private Date time;
 
     public enum MessageType {
         CHAT,
@@ -43,6 +46,14 @@ public class Message {
 
     public void setSender(String sender) {
         this.sender = sender;
+    }
+
+    public Date getTime() {
+        return time;
+    }
+
+    public void setTime(Date time) {
+        this.time = time;
     }
 
 }
