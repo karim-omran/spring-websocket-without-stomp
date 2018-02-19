@@ -91,6 +91,8 @@
                 weekday: "long", year: "numeric", month: "short",
                 day: "numeric", hour: "2-digit", minute: "2-digit"
             };
+            
+            var RETRY_CONNECT_TIME = 5000;
 
             // websocket observable
             var socketObservable = undefined;
@@ -112,7 +114,7 @@
 
             // now we need a listener on text message change to enable or disable send message button
             // you can use 'input' event just like 'click' but it listen to input changes and then add 
-            // a debounceTime to wait for a certain time before enable or disable it
+            // a "debounceTime" to wait for a certain time before enable or disable it
             // TODO:: create observable from 'input' event on "msgTxtIpt"
             var onMsgTxtIptChange = Rx.Observable.fromEvent(msgTxtIpt, 'input').debounceTime(700)
                     .distinctUntilChanged();
@@ -138,7 +140,7 @@
                                         console.error(err);
                                     })
                                     //restart in 5 seconds
-                                    .delayWhen(() => Rx.Observable.timer(5000)));
+                                    .delayWhen(() => Rx.Observable.timer(RETRY_CONNECT_TIME)));
 
                 // remember observable doesn't worth any thing without an observer to execute buisiness logic.
                 // here you have to subscribe three listeners to "socketObservable"
